@@ -21,6 +21,14 @@ This repo documents a cloud‑hosted SOC homelab hosted on DigitalOcean that col
 
 ---
 
+#How to Use This Repo
+
+1. Read **hardening** → secure the manager VM
+2. Deploy **Sysmon + agent** on Windows client(s)
+3. Import **local\_rules.xml** into Wazuh and reload
+4. Run **safe simulations**, observe alerts, tune
+5. Document findings in **detections/** and **simulations/**
+
 #Architecture
 
 ```
@@ -48,35 +56,39 @@ This repo documents a cloud‑hosted SOC homelab hosted on DigitalOcean that col
 .
 ├─ README.md                          # This document
 ├─ diagrams/
-│  └─ soc-architecture.png            # (Optional) draw.io/diagram image
+│  └─ soc-architecture.png            # (Optional) draw.io/diagram image, good for understanding your SOC layout plan
 ├─ configs/
 │  ├─ sysmon/
-│  │  └─ sysmon-config.xml            # SwiftOnSecurity-derived (doc link referenced)
+│  │  └─ sysmon-config.xml            # This format is based on SwiftOnSecurity (doc link referenced)
 │  ├─ wazuh/
-│  │  ├─ local_rules.xml              # Custom detection rules (T1003, suspicious LOLBins, etc.)
+│  │  ├─ local_rules.xml              # Custom detection rules (T1003 (credential stuffing)  etc.)
 │  │  └─ ossec.conf                   # Agent/manager snippets (sanitized)
 ├─ detections/
 │  ├─ t1003-cred-dumping.yml          # Rule notes + sample alert JSON
 │  └─ queries.md                      # Saved searches (process name, OriginalFileName, command line)
 ├─ simulations/
-│  ├─ atomic-red-team.md              # Safe tests, commands, revert steps
+│  ├─ atomic-red-team.md              # Safe tests, commands, revert steps (still in progress)
 │  └─ ir-playbook-mini.md             # Containment, verification, scoping checklist
 └─ hardening/
    ├─ ubuntu-baseline.md              # ufw, sshd_config, unattended-upgrades
    └─ windows-gpo-notes.md            # (If AD present) baseline controls
 ```
 
-> **Note:** Where configs contain secrets/hostnames, place **sanitized snippets** and instructions rather than raw files.
+Note! Where configs contain secrets/hostnames, place **sanitized snippets** and instructions rather than raw files.
 
 ---
 
-## ☁️ DigitalOcean Deployment (Manager VM)
+DigitalOcean Deployment (Manager VM)
 
-1. **Create droplet**: Ubuntu 22.04 LTS, 2GB+ RAM recommended, choose your region.
-2. **Networking**: Enable VPC if desired; assign a **reserved IP** (optional) for stability.
-3. **Access**: Upload SSH key; disable password auth.
-4. **Baseline hardening**
-
+1. Create droplet: Ubuntu 22.04 LTS, 2GB+ RAM recommended, choose your region.
+2. Networking: Enable VPC if desired; assign a **reserved IP** (optional) for stability.
+3. Access: Upload SSH key; disable password auth. (This is an ideal scenario to use an ssh key, however, in my case, I used password auth)
+4. Baseline hardening
+   |
+   |
+   |
+   v
+   
    ```bash
    sudo apt update && sudo apt -y upgrade
    sudo ufw default deny incoming && sudo ufw default allow outgoing
@@ -84,13 +96,13 @@ This repo documents a cloud‑hosted SOC homelab hosted on DigitalOcean that col
    sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
    sudo systemctl restart ssh
    ```
-5. **Install Wazuh (manager + indexer + dashboard)** – follow current Wazuh install guide for the consolidated stack. Capture version in README.
+6. Install Wazuh (manager + indexer + dashboard) – follow current Wazuh install guide for the consolidated stack. Capture version in README.
 
 ---
 
-## 🖥️ Windows Endpoint Setup (Sysmon + Agent)
+#Windows Endpoint Setup (Sysmon + Agent)
 
-1. **Install Sysmon**
+1. Install Sysmon
 
    * Download Sysmon from Microsoft Sysinternals
    * Use the popular SwiftOnSecurity configuration (or a minimal tuned variant)
@@ -98,22 +110,22 @@ This repo documents a cloud‑hosted SOC homelab hosted on DigitalOcean that col
    ```powershell
    sysmon64.exe -accepteula -i sysmon-config.xml
    ```
-2. **Install Wazuh Agent**
+2. Install Wazuh Agent
 
    * Match agent version to manager; during install, set **manager IP/hostname** and registration key if required.
    * Confirm service is running and logs are forwarding (`ossec.log` on Windows, or Wazuh dashboard > Agents).
 
 ---
 
-## 🔎 Validating the Log Pipeline
+#Validating the Log Pipeline
 
-**Goal:** verify endpoint → agent → manager → indexer → dashboard path.
+Goal: verify endpoint → agent → manager → indexer → dashboard path.
 
 Quick checks:
 
-* Generate benign events (e.g., `whoami`, `ipconfig`, `curl` to localhost)
-* Confirm new **process creation** (Sysmon Event ID 1) appears in Wazuh
-* Filter by host, image path, and `OriginalFileName`
+* Generate benign events (ex: `whoami`, `ipconfig`, `curl` to localhost)
+* Confirm new process creation (Sysmon Event ID 1) appears in Wazuh
+* Filter by host, image path, and `OriginalFileName` (this is important for determining if somebody modifies the binary file so that way it doesn't go unnoticed)
 
 Example saved search (pseudocode):
 
@@ -123,7 +135,7 @@ rule.level: * AND data.win.eventdata.Image.keyword: *\\whoami.exe
 
 ---
 
-## 🧭 MITRE ATT\&CK Mapping
+#MITRE ATT\&CK Mapping
 
 | Technique                     | ID    | Signal(s) / Fields                                                    | Notes                            |
 | ----------------------------- | ----- | --------------------------------------------------------------------- | -------------------------------- |
@@ -133,11 +145,11 @@ rule.level: * AND data.win.eventdata.Image.keyword: *\\whoami.exe
 
 ---
 
-## 🧩 Custom Detection Rules (examples)
+#Custom Detection Rules (examples)
 
 > Place final rules in `configs/wazuh/local_rules.xml` and document rationale under `detections/`.
 
-**Credential dumping (rename‑resistant)**
+*Credential dumping (rename‑resistant)*
 
 ```xml
 <rule id="100300" level="10">
@@ -152,33 +164,33 @@ rule.level: * AND data.win.eventdata.Image.keyword: *\\whoami.exe
 </rule>
 ```
 
-**Suspicious LSASS handle access (if using additional telemetry)** – placeholder for EDR/Sysmon ID 10/7 patterns.
+*Suspicious LSASS handle access (if using additional telemetry)* – placeholder for EDR/Sysmon ID 10/7 patterns.
 
 ---
 
-## 🧪 Safe Simulations
+#Safe Simulations THIS IS STILL A WORK IN PROGRESS!!!!! ATOMIC-RED-TEAM HAS NOT BEEN SETUP YET FOR MY LAB, WILL BE ON A LATER DATE
 
 See `simulations/atomic-red-team.md` for exact commands, scope, and revert steps.
 
-**Examples**
+Examples:
 
-* **Credential dumping simulation** (no real creds): execute benign test binary or ATT\&CK simulator that triggers detections by name/command line without exfiltration.
-* **Discovery**: run `whoami`, `systeminfo`, `net user` to generate low‑signal events for tuning.
+Credential dumping simulation (no real creds): execute benign test binary or ATT\&CK simulator that triggers detections by name/command line without exfiltration.
+Discovery: run `whoami`, `systeminfo`, `net user` to generate low‑signal events for tuning.
 
 > **Safety note:** Only run tests on lab machines you own/control. Avoid real malware; prefer ATT\&CK emulators or signed simulators.
 
 ---
 
-## 🧯 IR Mini Playbooks
+#Incident Response Mini Playbooks
 
-**Containment (isolating a suspected host)**
+Containment (isolating a suspected host)
 
 1. Acknowledge alert in Wazuh and tag the host.
 2. Quarantine options: remove VM NIC from vSwitch / DO VPC rule deny / security group lock‑down.
 3. Preserve artifacts (event logs, suspicious binary hash/path).
 4. Verify containment via failed egress & no new alerts.
 
-**Triage & Scoping**
+Triage & Scoping
 
 * Pivot on `ParentImage`, `CommandLine`, sibling processes, and host timeline.
 * Search for same IOC across all agents.
@@ -188,55 +200,38 @@ Templates live in `simulations/ir-playbook-mini.md`.
 
 ---
 
-## 📊 Dashboards & Queries
+#Dashboards & Queries
 
 * Process creation trends by host
 * Top `OriginalFileName` values with rare‑value outliers
-* Command line keyword heatmap (e.g., `-enc`, `-nop`, `lsass`, `sam`)
+* Command line keyword heatmap (ex: `-enc`, `-nop`, `lsass`, `sam`)
 * Agent heartbeat/health view
 
 Store saved searches in `detections/queries.md`.
 
 ---
 
-## 🔐 Hardening Notes
+#Hardening Notes
 
 See `hardening/ubuntu-baseline.md` and `hardening/windows-gpo-notes.md`.
 
-* Ubuntu: ufw, fail2ban (optional), sshd\_config lockdown, unattended‑upgrades, limited sudo
-* Windows: if AD present, baseline GPOs (password policy, lockout, removable storage), or local policies on standalone hosts
+* Ubuntu: ufw, sshd\_config lockdown, unattended‑upgrades, limited sudo
+* Windows: if AD server is present, baseline GPOs (password policy, lockout, removable storage), or local policies on standalone hosts
 
 ---
 
-## 🧭 Roadmap
+#Roadmap
 
-* [ ] Add second Windows endpoint to simulate lateral movement & isolation
-* [ ] Build detection for suspicious LSASS access and dump patterns
-* [ ] Add Sigma‑style rules and conversion notes
-* [ ] Export sample alerts (JSON) for each detection technique
-* [ ] Add architecture diagram image (diagrams/soc-architecture.png)
+*Add second Windows endpoint to simulate lateral movement & isolation
+*Build detection for suspicious LSASS access and dump patterns
+*Add Sigma‑style rules and conversion notes
+*Export sample alerts (JSON) for each detection technique
+*Add architecture diagram image (diagrams/soc-architecture.png)
 
----
-
-## 📚 How to Use This Repo
-
-1. Read **hardening** → secure the manager VM
-2. Deploy **Sysmon + agent** on Windows client(s)
-3. Import **local\_rules.xml** into Wazuh and reload
-4. Run **safe simulations**, observe alerts, tune
-5. Document findings in **detections/** and **simulations/**
 
 ---
 
-## ✅ What This Demonstrates (Resume bullets)
+**Disclaimer**
 
-* Built a cloud‑hosted SOC lab (DigitalOcean) using Wazuh SIEM and Windows Sysmon to collect and analyze endpoint telemetry.
-* Wrote custom rules to detect credential‑dumping tools by `OriginalFileName`; validated alerts against ATT\&CK‑aligned simulations (e.g., T1003).
-* Tuned searches/dashboards to surface process‑creation anomalies and supported basic incident response (containment, triage, scoping).
-
----
-
-## ⚠️ Disclaimer
-
-For educational use on lab systems you own/control. Do not run offensive tooling on networks or systems without explicit authorization.
+For educational purposes, use on lab systems you own/control. Do not run offensive tooling on networks or systems without explicit authorization.
 
